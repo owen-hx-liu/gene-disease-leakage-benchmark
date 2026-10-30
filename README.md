@@ -32,54 +32,6 @@ across four regimes, with three seeds (42, 1, 7):
 The graph has 452,012 nodes and 5,860,539 directed edges across 28 relation types and 8
 node categories.
 
-## Key result
-
-Evaluation leakage is method-class-dependent:
-
-- **Node-degree structure (R2) is the leak shared by every method tested.** Topological
-  baselines lose about 43 to 49% MRR and the four KGE models about 21 to 37%.
-  Preferential-Attachment (pure degree) is unchanged by construction, which confirms the null
-  preserves the degree sequence exactly. Scope: this covers the five parameter-free
-  topological heuristics and the four shallow embedding models; message-passing architectures
-  could not be tested in the regime where the leak exists (see the boundary note below).
-- **Train/test redundancy (R1) leaks only into the embedding models** (about 6 to 13%) and is
-  invisible to the overlap heuristics, because a direct gene-disease edge is embedded as
-  proximity by KGE but is not a shared neighbor.
-- **Cross-species orthology (R3) is a designed negative control that comes back null** — it
-  lowers no method's score, leaving the topological baselines within about 0.5% and raising
-  the embedding models slightly (+0.2 to +3.0% under sampled negatives, +2 to +16% under full
-  ranking). This is the domain-specific hypothesis a biomedical reviewer would raise, and the
-  data refutes it rather than confirming it.
-
-A filtered full-ranking robustness check, in which each true disease is ranked against the
-entire pool of about 14,300 diseases instead of 50 sampled negatives, reproduces and
-strengthens the degree effect: the KGE collapse deepens to 70 to 82% and the overlap
-heuristics to 88 to 91%, while Preferential-Attachment still does not move. The check is
-complete, covering all four KGE models and all five baselines across all four regimes and
-three seeds. Exact per-method numbers are in `tables/`: Table 2 for the sampled-negative
-protocol and Table S1 for full ranking.
-
-Two controls bound the degree result, and both are reported. Table S2 shows the R2 collapse
-is not an artifact of hyperparameters chosen on the standard split: the models fit the
-rewired training graph almost as well as the real one while their held-out scores collapse,
-and a matched learning-rate by negatives grid run on both regimes peaks at the same
-configuration in each. Tables S3 and S4 report a message-passing (R-GCN) probe, which is a
-boundary rather than a result: on this hardware the model trains only on subgraphs from which
-the degree leak has already dissolved (the matched control retains 12% of its full-graph
-collapse at the fraction we can train on, and the validity threshold is first cleared at a
-fraction costing roughly a month of training), so the paper's degree claim is scoped to the
-shallow-embedding and topological-heuristic families and message passing is stated as
-untested.
-
-A degree-stratified re-analysis (Table 5, Figure 4) decomposes each method's MRR by gene- and
-disease-degree quartile, recomputed from the stored per-edge ranks with no retraining. It
-localizes the leak: performance climbs steeply with disease degree (Preferential-Attachment
-gains +0.90 MRR from the rarest to the most popular disease quartile), and the degree-null
-penalty falls almost entirely on the rare-disease, low-degree strata. A worked case study
-(Table 6) shows the practical cost: hub diseases such as insomnia are ranked first by degree
-alone, while genuine rare-disease associations (for example RS1 to X-linked retinoschisis)
-are pushed to the bottom of the list.
-
 ## Repository layout
 
 ```
