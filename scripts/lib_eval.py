@@ -412,13 +412,19 @@ def bootstrap_ci(values, n=1000, seed=42, alpha=0.05) -> dict:
 
 
 def paired_bootstrap_pvalue(rr_method_a, rr_method_b, n=1000, seed=42,
-                            alpha=0.05) -> dict:
+                            alpha=0.05, chunk=2000) -> dict:
     """Paired bootstrap on per-edge reciprocal ranks (A - B).
 
     ``rr_method_a`` / ``rr_method_b`` are aligned per-edge reciprocal-rank arrays
     (i.e. ``1 / rank_test_edges(...)`` for two methods on the SAME regime, so
     element i is the same held-out edge). Returns the observed MRR difference, a
     95% CI on that difference, and a two-sided bootstrap p-value for H0: delta = 0.
+
+    Resamples are drawn ``chunk`` at a time so that large ``n`` (e.g. 100,000 for
+    multiple-testing correction) does not build an n x m index matrix in memory.
+    ``p_value`` is the raw achieved significance level and is 0 when no resample
+    reaches zero; ``p_value_plus_one`` adds one to each tail count, so it never
+    falls below 2/(n+1) and is the value to correct for multiple testing.
     """
     a = np.asarray(rr_method_a, dtype=float)
     b = np.asarray(rr_method_b, dtype=float)
@@ -428,19 +434,26 @@ def paired_bootstrap_pvalue(rr_method_a, rr_method_b, n=1000, seed=42,
     m = len(d)
     if m == 0:
         return {"delta": float("nan"), "ci_low": float("nan"),
-                "ci_high": float("nan"), "p_value": float("nan"), "n": 0}
+                "ci_high": float("nan"), "p_value": float("nan"),
+                "p_value_plus_one": float("nan"), "n": 0, "n_boot": int(n)}
     obs = float(d.mean())
     rng = np.random.default_rng(seed)
-    idx = rng.integers(0, m, size=(n, m))
-    boot = d[idx].mean(axis=1)
+    boot = np.empty(n, dtype=float)
+    for s in range(0, n, chunk):
+        k = min(chunk, n - s)
+        boot[s:s + k] = d[rng.integers(0, m, size=(k, m))].mean(axis=1)
     # Two-sided achieved significance level from the bootstrap distribution.
-    p = 2.0 * min(float(np.mean(boot <= 0)), float(np.mean(boot >= 0)))
+    le0, ge0 = int(np.sum(boot <= 0)), int(np.sum(boot >= 0))
+    p = 2.0 * min(le0, ge0) / n
+    p1 = 2.0 * (min(le0, ge0) + 1) / (n + 1)
     return {
         "delta": obs,
         "ci_low": float(np.quantile(boot, alpha / 2)),
         "ci_high": float(np.quantile(boot, 1 - alpha / 2)),
         "p_value": min(1.0, p),
+        "p_value_plus_one": min(1.0, p1),
         "n": int(m),
+        "n_boot": int(n),
     }
 
 

@@ -152,101 +152,159 @@ def _save(fig, name: str) -> None:
 
 # ------------------------------------------------------------------- Figure 1
 def fig1_dissociation(baselines: dict, kge: dict) -> None:
-    fig, ax = plt.subplots(figsize=(4.6, 4.6))
+    """Each method's R0 AUROC against its R0 MRR. MRR asks whether the true disease is near
+    the top of the ranking; AUROC asks whether true pairs are scored above false ones overall."""
+    fig, ax = plt.subplots(figsize=(5.4, 5.4))
+    bl_pts, kge_pts = {}, {}
     for m in BASELINES:
         mrr, _ = _bl(baselines["R0"], m, "MRR")
         auroc, _ = _bl(baselines["R0"], m, "AUROC")
+        bl_pts[m] = (mrr, auroc)
         ax.scatter(mrr, auroc, s=70, color=COLOR[m], marker=MARKER[m],
                    edgecolor="white", linewidth=0.7, zorder=3, label=m)
     for m in KGE_MODELS:
         mrr, _ = _kge_val(kge, m, "R0", "MRR")
         auroc, _ = _kge_val(kge, m, "R0", "AUROC_type")
+        kge_pts[m] = (mrr, auroc)
         ax.scatter(mrr, auroc, s=70, color=COLOR[m], marker=MARKER[m],
                    edgecolor="white", linewidth=0.7, zorder=3, label=m)
 
     ax.axhline(0.5, color="#BBBBBB", lw=1.0, ls=":", zorder=1)
-    ax.set_xlabel("MRR (ranking quality)")
-    ax.set_ylabel("AUROC (type-matched negatives)")
+    ax.text(0.02, 0.515, "AUROC = 0.5 (chance)", fontsize=7, color="#888888")
+    ax.set_xlabel("MRR: is the true disease near the top of the ranking?")
+    ax.set_ylabel("AUROC: are true pairs scored above false ones overall?\n"
+                  "(type-matched negatives)")
     ax.set_xlim(0, 1.02)
     ax.set_ylim(0, 1.02)
     ax.set_aspect("equal")
-    ax.set_title("AUROC compresses the differences MRR reveals (R0)")
+    # Plain description of how the two method groups compare (values read from the result
+    # files, not typed).
+    topo = [bl_pts[m] for m in BASELINES if m != "Random"]
+    kv = list(kge_pts.values())
+    note = (f"Topological baselines: MRR {min(t[0] for t in topo):.2f}\u2013"
+            f"{max(t[0] for t in topo):.2f}, AUROC {min(t[1] for t in topo):.2f}\u2013"
+            f"{max(t[1] for t in topo):.2f}\n"
+            f"KGE models: MRR {min(t[0] for t in kv):.2f}\u2013{max(t[0] for t in kv):.2f}, "
+            f"AUROC {min(t[1] for t in kv):.2f}\u2013{max(t[1] for t in kv):.2f}")
+    ax.text(0.02, 0.98, note, fontsize=6.5, va="top", ha="left", color="#333333", zorder=4)
+    ax.set_title("R0 scores on two metrics: MRR (ranking) and AUROC (overall separation)",
+                 fontsize=8.5)
     ax.legend(loc="lower right", fontsize=7, ncol=1)
     _save(fig, "fig1_auroc_mrr_dissociation")
 
 
 # ------------------------------------------------------------------- Figure 2
+def _kge_fullrank_agg() -> dict:
+    return _load(os.path.join(RESULTS, "kge_fullrank", "kge_summary.json"))["aggregate"]
+
+
+def _bl_fullrank() -> dict[str, dict]:
+    return {r: _load(os.path.join(RESULTS, "robustness", f"robustness_{r}.json"))["methods"]
+            for r in REGIMES}
+
+
 def fig2_audit(baselines: dict, kge: dict) -> None:
+    """MRR per method across R0-R3 under both protocols: top row = 50 sampled negatives, bottom
+    row = filtered full ranking (true disease against every disease node). Each row has its own
+    y-axis (full-ranking MRR is on a much smaller scale). In R2 the score that is left is the
+    part degree alone reproduces (compare with Preferential-Attachment)."""
     x = list(range(len(REGIMES)))
-    fig, (axb, axk) = plt.subplots(1, 2, figsize=(9.0, 4.0), sharey=True)
+    kge_fr, bl_fr = _kge_fullrank_agg(), _bl_fullrank()
+    fig, axes = plt.subplots(2, 2, figsize=(9.0, 7.6))
+    (axbf, axkf), (axb, axk) = axes
 
-    for m in BASELINES:
-        means, sds = [], []
-        for r in REGIMES:
-            mu, sd = _bl(baselines[r], m, "MRR")
-            means.append(mu); sds.append(sd)
-        lo = [mu - sd for mu, sd in zip(means, sds)]
-        hi = [mu + sd for mu, sd in zip(means, sds)]
-        axb.plot(x, means, color=COLOR[m], marker=MARKER[m], ms=6, lw=2, label=m, zorder=3)
-        axb.fill_between(x, lo, hi, color=COLOR[m], alpha=0.15, zorder=2)
+    def draw(ax, methods, getter):
+        for m in methods:
+            means, sds = [], []
+            for r in REGIMES:
+                mu, sd = getter(m, r)
+                means.append(mu); sds.append(sd)
+            lo = [mu - sd for mu, sd in zip(means, sds)]
+            hi = [mu + sd for mu, sd in zip(means, sds)]
+            ax.plot(x, means, color=COLOR[m], marker=MARKER[m], ms=6, lw=2, label=m, zorder=3)
+            ax.fill_between(x, lo, hi, color=COLOR[m], alpha=0.15, zorder=2)
 
-    for m in KGE_MODELS:
-        means, sds = [], []
-        for r in REGIMES:
-            mu, sd = _kge_val(kge, m, r, "MRR")
-            means.append(mu); sds.append(sd)
-        lo = [mu - sd for mu, sd in zip(means, sds)]
-        hi = [mu + sd for mu, sd in zip(means, sds)]
-        axk.plot(x, means, color=COLOR[m], marker=MARKER[m], ms=6, lw=2, label=m, zorder=3)
-        axk.fill_between(x, lo, hi, color=COLOR[m], alpha=0.15, zorder=2)
+    draw(axb, BASELINES, lambda m, r: _bl(baselines[r], m, "MRR"))
+    draw(axk, KGE_MODELS, lambda m, r: _kge_val(kge, m, r, "MRR"))
+    # Full-ranking baselines are deterministic (no across-seed SD).
+    draw(axbf, BASELINES, lambda m, r: (float(bl_fr[r][m]["MRR"]), 0.0))
+    draw(axkf, KGE_MODELS, lambda m, r: _kge_val(kge_fr, m, r, "MRR"))
 
-    for ax, title in ((axb, "Topological baselines"), (axk, "KGE models")):
+    panels = ((axb, "Topological baselines \u2013 50 sampled negatives"),
+              (axk, "KGE models \u2013 50 sampled negatives"),
+              (axbf, "Topological baselines \u2013 filtered full ranking"),
+              (axkf, "KGE models \u2013 filtered full ranking"))
+    for ax, title in panels:
         ax.set_xticks(x)
         ax.set_xticklabels(REGIMES)
         ax.set_xlabel("Leakage regime")
-        ax.set_title(title)
-        # Highlight the degree-null column (R2 = index 2).
+        ax.set_title(title, fontsize=9)
+        # R2 (degree-preserving null) column: the height left here is the degree part.
         ax.axvspan(1.6, 2.4, color="#F0E442", alpha=0.18, zorder=0)
-        ax.legend(fontsize=7)
-    axb.set_ylabel("MRR (mean ± SD, 3 seeds)")
-    fig.suptitle("Leakage audit across regimes R0–R3 (degree-null R2 shaded)", y=1.02)
+        ax.legend(fontsize=7, loc="upper center", bbox_to_anchor=(0.5, -0.22),
+                  ncol=3 if len(ax.lines) > 4 else 2, columnspacing=1.2)
+    axb.set_ylabel("MRR, 50 sampled negatives (mean \u00b1 SD, 3 seeds)")
+    axbf.set_ylabel("MRR, filtered full ranking\n(mean \u00b1 SD, 3 seeds; baselines deterministic)")
+    fig.suptitle("MRR across regimes R0\u2013R3 under two protocols "
+                 "(R2 = degree-preserving null, shaded: the score left is the degree part)",
+                 y=1.0, fontsize=10)
+    fig.tight_layout()
+    fig.subplots_adjust(hspace=0.75)
     _save(fig, "fig2_leakage_audit")
 
 
 # ------------------------------------------------------------------- Figure 3
-def fig3_decomposition(dn: dict) -> None:
+def fig3_decomposition(dn: dict, kge: dict) -> None:
+    """Each method's R0 MRR split into the part left under the R2 degree-preserving null (the
+    degree component) and the remainder (R0 - R2, the structure part). Topological baselines use
+    the mean of 200 rewirings and carry a permutation p-value; the KGE models use their single
+    R2 rewiring, so no p-value (hatched)."""
     methods = dn["methods"]
     order = [m for m in ["CommonNeighbors", "AdamicAdar", "Jaccard",
                          "PreferentialAttachment"] if m in methods]
-    fig, ax = plt.subplots(figsize=(6.0, 4.0))
-    x = list(range(len(order)))
-    degree_vals = [float(methods[m]["null_MRR_mean"]) for m in order]
-    struct_vals = [float(methods[m]["real_minus_null_mean"]) for m in order]
-
-    ax.bar(x, degree_vals, width=0.62, color="#BBBBBB", label="degree component (null MRR)",
-           zorder=3)
-    # 2px surface gap between stacked segments (thin white separator).
-    bars = ax.bar(x, struct_vals, width=0.62, bottom=degree_vals,
-                  color=[COLOR[m] for m in order],
-                  label="structure residual (R0 − null)", zorder=3,
-                  edgecolor="white", linewidth=1.2)
-
-    for xi, m in zip(x, order):
-        real = float(methods[m]["real_R0_MRR"])
-        # Add-one estimator (b+1)/(B+1): with B=200 replicates this floors at
-        # ~0.005, so structural methods sit at the floor rather than "p<0.001".
+    fig, ax = plt.subplots(figsize=(9.0, 4.4))
+    labels = order + KGE_MODELS
+    x = list(range(len(labels)))
+    real, degree_vals, struct_vals, ptxt = [], [], [], []
+    for m in order:
+        real.append(float(methods[m]["real_R0_MRR"]))
+        degree_vals.append(float(methods[m]["null_MRR_mean"]))
+        struct_vals.append(float(methods[m]["real_minus_null_mean"]))
+        # Add-one estimator (b+1)/(B+1): with B=200 replicates this floors at ~0.005.
         # Matches the Perm. p column of Table 3.
-        p = float(methods[m]["p_value_plus_one"])
-        p_str = f"p={p:.3f}"
-        ax.text(xi, real + 0.012, p_str, ha="center", va="bottom", fontsize=7,
-                color="#333333")
+        ptxt.append(f"p={float(methods[m]['p_value_plus_one']):.3f}")
+    for m in KGE_MODELS:
+        r0, _ = _kge_val(kge, m, "R0", "MRR")
+        r2, _ = _kge_val(kge, m, "R2", "MRR")
+        real.append(r0); degree_vals.append(r2); struct_vals.append(r0 - r2)
+        ptxt.append("single\nrewiring")
 
+    ax.bar(x, degree_vals, width=0.62, color="#BBBBBB",
+           label="degree component (R2 null MRR)", zorder=3)
+    n_bl = len(order)
+    bars = ax.bar(x, struct_vals, width=0.62, bottom=degree_vals,
+                  color=[COLOR[m] for m in labels],
+                  label="structure residual (R0 \u2212 R2)", zorder=3,
+                  edgecolor="white", linewidth=1.2)
+    for i, bar in enumerate(bars):
+        if i >= n_bl:
+            bar.set_hatch("//")
+    for xi, r, t in zip(x, real, ptxt):
+        ax.text(xi, r + 0.012, t, ha="center", va="bottom", fontsize=7, color="#333333")
+
+    ax.axvline(n_bl - 0.5, color="#999999", lw=0.8, ls="--", zorder=1)
+    top = max(real) * 1.30
+    ax.text((n_bl - 1) / 2, top * 0.97, "Topological baselines (mean of 200 rewirings)",
+            ha="center", va="top", fontsize=8, color="#333333")
+    ax.text(n_bl + (len(KGE_MODELS) - 1) / 2, top * 0.97,
+            "KGE models (single R2 rewiring, hatched)", ha="center", va="top", fontsize=8,
+            color="#333333")
     ax.set_xticks(x)
-    ax.set_xticklabels(order, rotation=20, ha="right")
-    ax.set_ylabel("R0 MRR")
-    ax.set_ylim(0, max(float(methods[m]["real_R0_MRR"]) for m in order) * 1.18)
-    ax.set_title("How much of R0 MRR is pure degree vs genuine structure")
-    ax.legend(fontsize=7, loc="upper left")
+    ax.set_xticklabels(labels, rotation=20, ha="right")
+    ax.set_ylabel("R0 MRR (50 sampled negatives)")
+    ax.set_ylim(0, top)
+    ax.set_title("How much of R0 MRR is the degree component vs the structure residual")
+    ax.legend(fontsize=7, loc="upper left", bbox_to_anchor=(0.0, 0.90))
     _save(fig, "fig3_degree_vs_structure")
 
 
@@ -293,8 +351,10 @@ def fig4_degree_stratified(ds: dict) -> None:
     fig.legend(handles=handles, labels=[h.get_label() for h in handles],
                fontsize=7.5, ncol=5, loc="lower center", bbox_to_anchor=(0.5, -0.10),
                columnspacing=1.4, handletextpad=0.5)
-    fig.suptitle("A double dissociation: overlap heuristics ride query-gene degree; "
-                 "KGE and Pref.-Attachment ride target-disease degree", y=1.00, fontsize=10)
+    fig.suptitle("R0 MRR by degree quartile (are high-degree nodes predicted better?)\n"
+                 "Overlap heuristics score higher for high-degree query genes; KGE models and "
+                 "Pref.-Attachment score higher for high-degree target diseases",
+                 y=1.03, fontsize=9.5)
     _save(fig, "fig4_degree_stratified")
 
 
@@ -589,7 +649,7 @@ def main() -> None:
     ds = _degree_stratified()
     fig1_dissociation(baselines, kge)
     fig2_audit(baselines, kge)
-    fig3_decomposition(dn)
+    fig3_decomposition(dn, kge)
     fig4_degree_stratified(ds)
     schema = _schema()
     figS1_schema(schema)

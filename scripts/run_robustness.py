@@ -428,6 +428,11 @@ def main():
             "seed": args.seed,
             "validated_edges": int(args.validate),
             "methods": summary,
+            # aligned with test.csv row order, so regimes and methods can be paired
+            # (multiple_testing.py). Random is omitted: its full-pool rank is analytic.
+            "per_edge_reciprocal_ranks": {
+                m: (1.0 / np.asarray(ranks[m], dtype=float)).tolist()
+                for m in METHODS if m != "Random"},
             "created": time.strftime("%Y-%m-%d %H:%M:%S"),
         }
         p = out / f"robustness_{regime}.json"
