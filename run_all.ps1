@@ -7,17 +7,26 @@
    1. graph_stats.py            -> data/processed/graph_stats.json
    2. graph_stats_hetionet.py   -> data/processed/graph_stats_hetionet.json
    3. build_deleaked_splits.py  -> data/processed/splits/*.csv + split_manifest.json
-   4. build_degree_null.py      -> data/processed/results/null/degree_null.json (+ R2 split)
-   5. run_baselines.py R0-R3    -> data/processed/results/baselines/baselines_R*.json
-   6. run_kge.py (GPU)          -> data/processed/results/kge/*.json + kge_summary.json
-   7. hetionet_audit.py R0-R2   -> data/processed/results/hetionet/baselines_R*.json
-   8. degree_stratified.py      -> data/processed/results/degree_stratified/degree_stratified.json
-   9. case_study.py             -> data/processed/results/case_study/case_study.json
-  10. make_figures.py           -> figures/fig1-4.{png,pdf}
-  11. make_tables.py            -> tables/table1-6.{md,tex}
-  12. hash-verify reproduced splits (informational)
+   4. build_degree_null.py      -> data/processed/results/null/degree_null.json (+ R2 split; 200 graphs)
+   5. run_baselines.py R0-R3    -> data/processed/results/baselines/baselines_R*.json   (sampled ranking)
+   6. run_robustness.py R0-R3   -> data/processed/results/robustness/robustness_R*.json (full ranking)
+   7. run_kge.py (GPU)          -> data/processed/results/kge/*.json + kge_summary.json  (sampled ranking)
+   8. run_kge.py --full-rank    -> data/processed/results/kge_fullrank/*.json            (full ranking, GPU)
+   9. hetionet_audit.py R0-R2   -> data/processed/results/hetionet/baselines_R*.json
+  10. degree_stratified.py      -> data/processed/results/degree_stratified/degree_stratified.json
+  11. case_study.py             -> data/processed/results/case_study/case_study.json
+  12. make_figures.py           -> figures/fig1-4.{png,pdf}    (first-submission figures)
+  13. make_tables.py            -> tables/table1-6.{md,tex}    (first-submission tables)
+  14. multiple_testing.py       -> data/processed/results/stats/multiple_testing.json + tables/tableS6_pvalues.*
+  15. hub_cap_analysis.py       -> data/processed/results/hub_cap/hub_cap_analysis.json
+  16. make_revision_assets.py   -> revision/tables, revision/figures, revision/revision_numbers.json
+  17. overlap_lowdegree.py      -> revision/tables/tableS8_overlap_lowdegree.tex
+  18. pool_exclusion.py         -> revision/tables/tableS9_pool_exclusion.tex
+  19. hash-verify reproduced splits (informational)
 
- Acceptance: a clean clone + the data channel reproduces Table 2 and Fig 2.
+ Steps 14-18 build every table and figure of the revised manuscript (full ranking
+ primary) from the frozen result JSONs; they need no GPU.
+ Acceptance: a clean clone + the data channel reproduces Tables 3-4 and Fig 3-4.
  Runtimes below are approximate on a modern workstation; the KGE step needs a
  CUDA GPU and dominates the wall-clock. Paths are repo-relative.
 
@@ -113,10 +122,10 @@ try {
                   "--edges", "data/processed/edges_clean_integrated.csv",
                   "--out", "data/processed/splits", "--seed", "42")
 
-    Invoke-Step -Title "Build R2 degree-preserving null (10 replicates, seed 42)" -Est "~5-15 min" `
+    Invoke-Step -Title "Build R2 degree-preserving null (200 replicates, seed 42)" -Est "hours (200 rewired graphs; longest CPU step)" `
         -Out "data/processed/results/null/degree_null.json + splits/train_R2_degree_null_seed42.csv" `
         -PyArgs @("scripts/build_degree_null.py",
-                  "--splits-dir", "data/processed/splits", "--replicates", "10", "--seed", "42")
+                  "--splits-dir", "data/processed/splits", "--replicates", "200", "--seed", "42")
 
     Invoke-Step -Title "Topological baselines across regimes R0,R1,R2,R3 (seeds 42,1,7)" -Est "~3-8 min" `
         -Out "data/processed/results/baselines/baselines_R{0,1,2,3}.json" `
@@ -124,14 +133,21 @@ try {
                   "--regimes", "R0,R1,R2,R3", "--seeds", "42,1,7",
                   "--splits-dir", "data/processed/splits")
 
-    # -------------------------------------------------------------------- 6. KGE
+    Invoke-Step -Title "Topological baselines, full ranking R0,R1,R2,R3 (brute-force check on 150 edges)" `
+        -Est "~5 min" `
+        -Out "data/processed/results/robustness/robustness_R{0,1,2,3}.json" `
+        -PyArgs @("scripts/run_robustness.py", "--regimes", "R0,R1,R2,R3", "--validate", "150")
+
+    # ------------------------------------------------------------------ 7-8. KGE
     if ($SkipKge) {
         $script:Step++
         Banner "STEP $($script:Step): KGE (TransE, RotatE, DistMult, ComplEx)  --  SKIPPED (-SkipKge)"
-        Write-Host "  Reusing the committed data/processed/results/kge/kge_summary.json."
-        Write-Host "  To (re)compute on a CUDA GPU (~40 min/cell, 48 cells -> many hours):"
+        Write-Host "  Reusing the frozen data/processed/results/kge/ and kge_fullrank/ JSONs."
+        Write-Host "  To (re)compute on a CUDA GPU (~40 min/cell, 48 cells per protocol -> many hours):"
         Write-Host "    $Python scripts/run_kge.py --models TransE RotatE DistMult ComplEx ``"
         Write-Host "        --regimes R0 R1 R2 R3 --seeds 42 1 7 --dim 64 --epochs 300"
+        Write-Host "    (and the same with --full-rank, one regime per call, for the full-ranking arm)"
+        $script:Step++
     } else {
         Invoke-Step -Title "KGE full benchmark: TransE, RotatE, DistMult, ComplEx x R0,R1,R2,R3 x 3 seeds" `
             -Est "GPU REQUIRED; ~40 min/cell, 48 cells -> many hours" `
@@ -140,6 +156,23 @@ try {
                       "--models", "TransE", "RotatE", "DistMult", "ComplEx",
                       "--regimes", "R0", "R1", "R2", "R3",
                       "--seeds", "42", "1", "7", "--dim", "64", "--epochs", "300")
+
+        # Full ranking: one call per regime keeps one 5.8M-edge graph in RAM at a time (see
+        # scripts/run_fullrank_kgearm.sh). The first regime brute-force-checks the vectorized
+        # full-pool rank: 150 edges for the translational models, 30 for the slower bilinear ones.
+        $script:Step++
+        Banner "STEP $($script:Step): KGE full ranking: 4 models x R0,R1,R2,R3 x 3 seeds (GPU; many hours)"
+        foreach ($R in @("R0", "R1", "R2", "R3")) {
+            if ($R -eq "R0") { $VT = "150"; $VB = "30" } else { $VT = "0"; $VB = "0" }
+            foreach ($grp in @(@("TransE", "RotatE", $VT), @("DistMult", "ComplEx", $VB))) {
+                & $Python scripts/run_kge.py --full-rank --models $grp[0] $grp[1] --regimes $R `
+                    --seeds 42 1 7 --dim 64 --epochs 300 --validate-fullrank $grp[2]
+                if ($LASTEXITCODE -ne 0) { throw "full-rank KGE failed: $($grp[0]),$($grp[1]) $R" }
+            }
+        }
+        & $Python scripts/run_kge.py --full-rank --merge-only
+        if ($LASTEXITCODE -ne 0) { throw "full-rank KGE merge failed" }
+        Write-Host "  [ok] step $($script:Step) done -> data/processed/results/kge_fullrank/"
     }
 
     Invoke-Step -Title "Hetionet cross-graph robustness (DaG; R0,R1,R2)" -Est "~2-5 min" `
@@ -167,6 +200,27 @@ try {
         -Out "tables/table1-6.{md,tex}" `
         -PyArgs @("scripts/make_tables.py")
 
+    # ---------------------------------------------------- 14-18. revised manuscript
+    Invoke-Step -Title "Holm-corrected paired bootstrap, 76 comparisons (100,000 resamples)" -Est "~5-15 min" `
+        -Out "data/processed/results/stats/multiple_testing.json + tables/tableS6_pvalues.{md,tex}" `
+        -PyArgs @("scripts/multiple_testing.py")
+
+    Invoke-Step -Title "Neighbor-degree cap check for CN/AA (S1 Text, S4 Fig)" -Est "<1 min" `
+        -Out "data/processed/results/hub_cap/hub_cap_analysis.json" `
+        -PyArgs @("scripts/hub_cap_analysis.py")
+
+    Invoke-Step -Title "Revised manuscript tables and figures (full ranking primary)" -Est "~1-2 min" `
+        -Out "revision/tables/, revision/figures/, revision/revision_numbers.json" `
+        -PyArgs @("scripts/make_revision_assets.py")
+
+    Invoke-Step -Title "Direct overlap among low-degree diseases (S8 Table)" -Est "<1 min" `
+        -Out "revision/tables/tableS8_overlap_lowdegree.tex" `
+        -PyArgs @("scripts/overlap_lowdegree.py")
+
+    Invoke-Step -Title "R1/R3 with and without edges whose disease leaves the pool (S9 Table)" -Est "~1-2 min" `
+        -Out "revision/tables/tableS9_pool_exclusion.tex" `
+        -PyArgs @("scripts/pool_exclusion.py")
+
     # ------------------------------------------------- 10. verify reproduction
     Banner "POST-RUN: verify reproduced artifacts against ARTIFACT_HASHES.txt"
     & $Python scripts/verify_hashes.py --check-existing
@@ -180,11 +234,12 @@ try {
     Write-Host "  graph stats   : data/processed/graph_stats.json, graph_stats_hetionet.json"
     Write-Host "  splits        : data/processed/splits/"
     Write-Host "  degree null   : data/processed/results/null/degree_null.json"
-    Write-Host "  baselines     : data/processed/results/baselines/"
-    Write-Host "  KGE           : data/processed/results/kge/"
+    Write-Host "  baselines     : data/processed/results/baselines/ (sampled), robustness/ (full)"
+    Write-Host "  KGE           : data/processed/results/kge/ (sampled), kge_fullrank/ (full)"
     Write-Host "  Hetionet      : data/processed/results/hetionet/"
-    Write-Host "  figures       : figures/fig1-3.{png,pdf}"
-    Write-Host "  tables        : tables/table1-4.{md,tex}"
+    Write-Host "  statistics    : data/processed/results/stats/multiple_testing.json"
+    Write-Host "  figures       : figures/fig1-4.{png,pdf} (first submission), revision/figures/ (revised)"
+    Write-Host "  tables        : tables/table1-6.{md,tex} (first submission), revision/tables/ (revised)"
 }
 catch {
     Write-Host ""

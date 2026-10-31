@@ -14,9 +14,10 @@ authors:
     given-names: "Ryan"
     affiliation: "Independent Researcher"
     orcid: "https://orcid.org/0009-0006-8336-3502"
-version: v1.4.1
-doi: "10.5281/zenodo.21828739"
-date-released: "2026-08-06"
+version: v1.5.0
+# Concept DOI: always resolves to the latest Zenodo version of this archive.
+doi: "10.5281/zenodo.21398831"
+date-released: "2026-10-30"
 license:
   - MIT
   - CC-BY-4.0
@@ -43,11 +44,14 @@ abstract: >-
   spanning two families (translational: TransE, RotatE; bilinear: DistMult, ComplEx)
   and five topological baselines (Random, Common-Neighbors, Adamic-Adar, Jaccard,
   Preferential-Attachment) are evaluated under one shared ranking harness on 4,228
-  held-out human gene-disease test edges across four leakage regimes (R0 standard, R1
-  redundancy, R2 degree-preserving null, R3 orthology-blocked; seeds 42/1/7).
-  Evaluation leakage is method-class-dependent: node-degree structure (R2) is the leak
-  every method tested shares, train/test redundancy (R1) leaks only into multi-hop KGE, and
-  cross-species orthology (R3) is a designed negative control that comes back null. The
-  release includes the de-leaked splits, per-regime result JSONs (including a filtered
-  full-ranking robustness run), table/figure generators that read only the frozen
-  result JSONs, and a one-command regeneration script.
+  held-out human gene-disease test edges across four regimes (R0 random split, R1 direct
+  train-test overlap removed, R2 degree-preserving rewiring, R3 cross-species orthology
+  removed; seeds 42/1/7), with filtered full ranking against all diseases as the primary
+  protocol and 50 sampled negatives as the secondary one. Under full ranking, KGE models
+  retain 18-30% of their R0 MRR after degree-preserving rewiring (63-79% against sampled
+  negatives), so most performance requires structure beyond degree and sampled ranking
+  overstates the role of degree. Direct train-test overlap (R1) lowers KGE MRR by 10-32%
+  but overlap-heuristic MRR by at most 2%, and removing cross-species orthology (R3)
+  lowers no method's MRR by more than 1.1%. The release includes the de-leaked splits,
+  per-regime result JSONs under both protocols, table/figure generators that read only
+  the frozen result JSONs, and a one-command regeneration script.

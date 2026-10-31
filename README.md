@@ -20,7 +20,8 @@ set of controlled evaluation regimes run through one shared ranking harness.
 Four KGE models spanning two families (translational: TransE, RotatE; bilinear: DistMult,
 ComplEx) and five topological baselines (Random, Common-Neighbors, Adamic-Adar, Jaccard,
 Preferential-Attachment) are evaluated on 4,228 held-out human gene-disease test edges
-across four regimes, with three seeds (42, 1, 7):
+across four regimes, with three seeds (42, 1, 7). Filtered full ranking against all
+diseases is the primary protocol; ranking against 50 sampled negatives is secondary.
 
 | Regime | Name | What it removes |
 |---|---|---|
@@ -39,21 +40,29 @@ scripts/                     pipeline and analysis code
   build_deleaked_splits.py   build the R0/R1/R3 splits and the split manifest
   build_degree_null.py       build the R2 degree-preserving null
   run_baselines.py           topological baselines across regimes
-  run_kge.py                 TransE, RotatE, DistMult, ComplEx (GPU); --full-rank for the robustness run
-  run_robustness.py          baseline full-ranking robustness
+  run_kge.py                 TransE, RotatE, DistMult, ComplEx (GPU); --full-rank for full ranking
+  run_robustness.py          topological baselines under full ranking
   hetionet_audit.py          cross-graph replication on Hetionet
   degree_stratified.py       degree-stratified re-analysis (gene vs disease degree; no retraining)
   case_study.py              worked case study (degree false-positives vs missed rare edges)
   lib_eval.py                the single shared ranking and scoring harness
-  make_tables.py             Tables 1-6 and S1 from result JSONs (no hand-typed numbers)
-  make_figures.py            Figures 1-4 from result JSONs
+  multiple_testing.py        paired bootstrap (100,000 resamples) with Holm correction over 76 comparisons
+  hub_cap_analysis.py        check of the CN/AA neighbor-degree cap (S1 Text, S4 Fig)
+  make_revision_assets.py    revised manuscript: Tables 3-7, S1 and S5-S7 Tables, Figs 1-5 (writes to revision/)
+  overlap_lowdegree.py       revised manuscript: S8 Table (direct overlap among low-degree diseases)
+  pool_exclusion.py          revised manuscript: S9 Table (edges whose disease leaves the candidate pool)
+  make_tables.py             first-submission Tables 1-6 and S1 from result JSONs (no hand-typed numbers)
+  make_figures.py            first-submission Figures 1-4 from result JSONs
 data/processed/
   splits/                    the de-leaked benchmark (train/valid/test, R1/R2/R3, manifest)
-  results/                   per-regime baseline, KGE, robustness, Hetionet, degree-stratified, and case-study results
+  results/                   per-regime results: baselines/ and kge/ (sampled), robustness/ and kge_fullrank/
+                             (full ranking), null/ (200-graph permutation null), stats/, hub_cap/, Hetionet,
+                             degree-stratified, and case-study results
   provenance/                per-source contribution table
-tables/                      generated tables (Markdown and LaTeX)
-figures/                     generated figures (PNG and PDF)
-run_all.sh                   one-command end-to-end reproduction
+tables/                      generated tables of the first submission (Markdown and LaTeX)
+figures/                     generated figures of the first submission (PNG and PDF)
+revision/                    revised-manuscript tables and figures (generated; git-ignored)
+run_all.sh / run_all.ps1     one-command end-to-end reproduction
 requirements.txt             Python dependencies
 ```
 
@@ -74,12 +83,23 @@ A bare `git clone` only carries a partial subset of `data/processed/results/` (k
 browsable sample; GitHub has no clean way to track ~9 MB of JSON without also inviting the 160 MB
 `splits.zip` past its 100 MB per-file limit). To regenerate every table and figure without a GPU,
 first download and unzip `splits.zip` and `results.zip` from the
-[Zenodo record](https://doi.org/10.5281/zenodo.21828739) into `data/processed/`, then:
+[Zenodo record](https://doi.org/10.5281/zenodo.21398831) into `data/processed/`, then:
 
 ```bash
+# revised manuscript (full ranking primary)
+python scripts/multiple_testing.py      # results/stats/multiple_testing.json, tables/tableS6_pvalues
+python scripts/hub_cap_analysis.py      # results/hub_cap/hub_cap_analysis.json
+python scripts/make_revision_assets.py  # revision/tables, revision/figures
+python scripts/overlap_lowdegree.py     # revision/tables/tableS8_overlap_lowdegree.tex
+python scripts/pool_exclusion.py        # revision/tables/tableS9_pool_exclusion.tex
+
+# first submission
 python scripts/make_tables.py    # tables/table1-6 and tableS1 (.md and .tex)
 python scripts/make_figures.py   # figures/fig1-4 (.png and .pdf)
 ```
+
+`multiple_testing.json` and `hub_cap_analysis.json` are already in `results.zip`, so the first
+two commands can be skipped if you only want the tables and figures.
 
 All runs use fixed seeds (42, 1, 7). Paths are repo-relative; there are no hard-coded machine
 paths or secrets. Heavy steps checkpoint to disk. Reproducing the KGE arm from scratch needs
@@ -92,7 +112,7 @@ The knowledge graph is derived from the Monarch Initiative (about 98.3% of edges
 augmented with seven curated sources: DGIdb, GWAS Catalog, DrugCentral, Orphadata,
 Gene2Phenotype, CIViC, and DIDA. Per-source contributions are archived as
 `provenance/source_provenance.csv` in `provenance.zip` on the
-[Zenodo record](https://doi.org/10.5281/zenodo.21828739) (the `data/processed/provenance/`
+[Zenodo record](https://doi.org/10.5281/zenodo.21398831) (the `data/processed/provenance/`
 path is git-ignored, not part of the GitHub tree). Because Monarch aggregates several primary
 sources, do not read "supported by N datasets" as N independent votes.
 
@@ -106,8 +126,9 @@ Two licenses apply:
 ## Citation
 
 If you use this benchmark or code, please cite the archived release:
-[10.5281/zenodo.21828739](https://doi.org/10.5281/zenodo.21828739). Machine-readable metadata
-is in [`CITATION.cff`](CITATION.cff) and [`.zenodo.json`](.zenodo.json).
+[10.5281/zenodo.21398831](https://doi.org/10.5281/zenodo.21398831). This concept DOI always
+resolves to the latest version; the Zenodo record lists the DOI of each individual version.
+Machine-readable metadata is in [`CITATION.cff`](CITATION.cff) and [`.zenodo.json`](.zenodo.json).
 
 ## Caveats
 
@@ -116,6 +137,7 @@ is in [`CITATION.cff`](CITATION.cff) and [`.zenodo.json`](.zenodo.json).
   not a time split.
 - **Coverage is Monarch-dominated.** Even after integrating seven more sources, about 98.3%
   of edges are Monarch content.
-- **Name the protocol.** Ranking metrics are reported for both a sampled-negative protocol
-  (Table 2) and a filtered full-ranking protocol (Table S1); the two can rank methods
-  differently, so always state which one a number comes from.
+- **Name the protocol.** Ranking metrics are reported for both a filtered full-ranking
+  protocol (primary; Table 3 of the revised manuscript) and a sampled-negative protocol
+  (S1 Table); the two can rank methods differently, so always state which one a number
+  comes from.
